@@ -313,6 +313,8 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  // Modify in lab2, copy trace_mask from parent to children;
+  np->trace_mask = p->trace_mask;
   release(&np->lock);
 
   return pid;
@@ -653,4 +655,13 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+get_used_proc(){
+  uint64 ans;
+  ans = 0;
+  for(int i = 0; i < NPROC; i++)
+    ans += (proc[i].state != UNUSED ? 1 : 0);
+  return ans;
 }
