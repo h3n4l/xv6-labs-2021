@@ -126,6 +126,13 @@ found:
     release(&p->lock);
     return 0;
   }
+  // Allocate resume trapframe page
+  if((p->resume_trapframe = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  } 
+
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -141,6 +148,10 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->alarm_interval = 0;
+  p->callback_fn_p = 0;
+  p->nticks_after_last_call = 0;
+  p->in_callback = 0;
   return p;
 }
 
@@ -153,6 +164,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->resume_trapframe)
+    kfree((void*)p->resume_trapframe);
+  p->resume_trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -164,6 +178,10 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->callback_fn_p = 0;
+  p->alarm_interval = 0;
+  p->nticks_after_last_call = 0;
+  p->in_callback = 0;
 }
 
 // Create a user page table for a given process,
@@ -653,4 +671,29 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Add in lab4
+int 
+sigalarm(int interval, uint64 callback_fn_p)
+{
+  struct proc * p;
+  p = myproc();
+  p->alarm_interval = interval;
+  p->callback_fn_p = callback_fn_p;
+  return 0;
+}
+
+int 
+sigreturn()
+{
+  struct proc * p;
+  p = myproc();
+  if(p->in_callback != 1){
+    panic("Unexpect sigreturn..");
+  }
+  // resume trapframe
+  *(p->trapframe) = *(p->resume_trapframe);
+  p->in_callback = 0;
+  return 0;
 }

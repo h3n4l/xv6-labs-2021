@@ -76,6 +76,19 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  // after every n "ticks" of CPU time **that the program consumes**!
+  if(which_dev == 2){
+    if(p->alarm_interval != 0){
+      p->nticks_after_last_call++;
+      if(p->alarm_interval == p->nticks_after_last_call && p->in_callback == 0){
+        p->in_callback = 1;
+        p->nticks_after_last_call = 0;
+        // Save the prev trapframe
+        *(p->resume_trapframe) = *(p->trapframe); 
+        p->trapframe->epc = (uint64) p->callback_fn_p;
+      }
+    }
+  }
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();

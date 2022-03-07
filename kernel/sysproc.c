@@ -1,3 +1,10 @@
+/*
+ * @Author: h3n4l
+ * @Date: 2022-03-06 14:25:36
+ * @LastEditors: h3n4l
+ * @LastEditTime: 2022-03-06 22:40:49
+ * @FilePath: /xv6-labs-2021/kernel/sysproc.c
+ */
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
@@ -57,7 +64,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
-
+  back_trace();
   if(argint(0, &n) < 0)
     return -1;
   acquire(&tickslock);
@@ -94,4 +101,31 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_sigalarm(void)
+{
+  // Get two arguments of this syscall, there is prototype below:
+  // int sigalarm(int ticks, void(*handler)());
+  int xtick;
+  uint64 callback_p;
+  if(argint(0, &xtick) < 0){
+    return -1;
+  }
+  if(xtick < 0){
+    // What is negative value of xtick????
+    return -1;
+  }
+  if(argaddr(1, &callback_p) < 0){
+    return -1;
+  }
+  return sigalarm(xtick, callback_p);
+}
+
+
+uint64
+sys_sigreturn(void)
+{
+  return sigreturn();
 }
