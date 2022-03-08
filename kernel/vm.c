@@ -15,6 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern int ref_count[]; // kalloc.c
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -148,8 +149,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
+    // printf("mappages: pagetable: %p, va: %p, PTE: %p, *PTE: %d\n", pagetable,a, pte,*pte);
     if(*pte & PTE_V)
       panic("mappages: remap");
+    
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -182,6 +185,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+    // printf("uvmunmap, pagetable: %p, va: %p, PTE: %p, *PTE: %d\n",pagetable, va, pte,*pte);
     *pte = 0;
   }
 }
@@ -312,12 +316,35 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    if(flags & PTE_W){
+      // clear the PTE_W and set the PTE_COW both child and parent
+      (*pte) ^= PTE_W;
+      (*pte) |= PTE_COW;
+      // uvmunmap(old, i, 1, 0);
+      // mappages(old, i, PGSIZE, pa, (flags^PTE_W)|PTE_COW);
+      // map the physical page on old and new
+      if(mappages(new, i, PGSIZE, pa, (flags ^ PTE_W)|PTE_COW) != 0){
+        goto err;
+      }
+      // Add refcount
+      add_refcount(pa);
+    }else{
+      // using the origin flags
+      if(mappages(new, i, PGSIZE, pa , flags) != 0){
+        goto err;
+      }
+      // Add refcount
+      add_refcount(pa);
+    }
+    // Origin code below, if it runs, mappages will report panic("remap")
+    if(0){
+      if((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char*)pa, PGSIZE);
+      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+        kfree(mem);
+        goto err;
+      }
     }
   }
   return 0;
@@ -347,9 +374,32 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  pte_t * pte;
+  uint flags;
+  char *mem;
+  if(dstva >= MAXVA){
+    return -1;
+  }
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    if((pte = walk(pagetable,va0,0)) == 0){
+      return -1;
+    }
+    pa0 = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    if(flags & PTE_COW){
+      if((mem = kalloc()) == 0){
+        return -1;
+      }else{
+        memmove(mem, (char*)(PGROUNDDOWN(pa0)), PGSIZE);
+        uvmunmap(pagetable,PGROUNDDOWN(va0),1,1);  // do kfree
+        if(mappages(pagetable, PGROUNDDOWN(va0), PGSIZE, (uint64)mem,((flags ^ PTE_COW) | PTE_W)) != 0){
+          kfree(mem);
+          return -1;
+        }
+      }
+    }
+    // After doing COW, need walk again to get the new physical address
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;

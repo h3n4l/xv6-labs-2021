@@ -65,6 +65,40 @@ usertrap(void)
     intr_on();
 
     syscall();
+  }else if(r_scause() == 0xf){
+    // Page fault
+    pte_t *pte;
+    uint64 pa, fault_addr;
+    uint flags;
+    char * mem;
+    // Get the address that couldn't be translated
+    fault_addr = r_stval();
+    // printf("faultaddr:  %p\n", fault_addr);
+    // printf("rounddown fault addr: %p\n", PGROUNDDOWN(fault_addr));
+    // Check the pagetable, if it's mark as the PTE_COW & PTE_V,  allocate a new page and remap it
+    if(fault_addr < MAXVA && (pte = walk(p->pagetable,fault_addr,0)) != 0){
+      pa = PTE2PA(*pte);
+      flags = PTE_FLAGS(*pte);
+      if((flags & PTE_V) && (flags & PTE_COW)){
+        if((mem = kalloc()) == 0){
+          p->killed = 1;
+        }else{
+          // This memmove need PGROUNDDOWN(pa), else ii will cross over page
+          memmove(mem, (char*)(PGROUNDDOWN(pa)), PGSIZE);
+          uvmunmap(p->pagetable,PGROUNDDOWN(fault_addr),1,1);  // do kfree
+          // TODO: if use mappages(p->pagetable, fault_addr, PGSIZE, (uint64)mem,((flags ^ PTE_COW) | PTE_W)) != 0 will panic "remap"
+          //  the mappages function will remap
+          if(mappages(p->pagetable, PGROUNDDOWN(fault_addr), PGSIZE, (uint64)mem,((flags ^ PTE_COW) | PTE_W)) != 0){
+            kfree(mem);
+            p->killed = 1;
+          }
+        }
+      }
+    }else{
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

@@ -6,6 +6,9 @@
 
 volatile static int started = 0;
 
+extern char end[];  // first address after kernel.
+                    // defined by kernel.ld.
+
 // start() jumps here in supervisor mode on all CPUs.
 void
 main()
@@ -29,6 +32,8 @@ main()
     fileinit();      // file table
     virtio_disk_init(); // emulated hard disk
     userinit();      // first user process
+    // Add in Lab5, check the end and the PHYSTOP
+    printf("KERNBASE: %p, PHYSTOP: %p, array_sz: %d, PHYNPG:%d\n", KERNBASE, PHYSTOP, (PHYSTOP - KERNBASE) / PGSIZE ,PHYNPG);
     __sync_synchronize();
     started = 1;
   } else {
