@@ -93,6 +93,7 @@ consoleread(int user_dst, uint64 dst, int n)
         release(&cons.lock);
         return -1;
       }
+      // use sleep() and awake(), wait the interrupt
       sleep(&cons.r, &cons.lock);
     }
 
